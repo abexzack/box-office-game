@@ -1,5 +1,5 @@
 from tmdbv3api import TMDb, Person, Movie
-from typing import List, Optional
+from typing import List, Optional, Dict
 import time
 from functools import lru_cache
 import os
@@ -118,11 +118,12 @@ class MovieDataService:
             movies = []
             for movie in results[:10]:  # Limit to 10 results
                 if movie.get("release_date"):
-                    year = movie["release_date"][:4]  # Get year from YYYY-MM-DD
+                    year = movie["release_date"][:4]
                 else:
                     year = "N/A"
                     
                 movies.append({
+                    "id": movie["id"],
                     "title": movie["title"],
                     "year": year
                 })
@@ -130,4 +131,51 @@ class MovieDataService:
             return movies
             
         except requests.exceptions.RequestException as e:
-            raise TMDBError(f"Error searching movies: {str(e)}") 
+            raise TMDBError(f"Error searching movies: {str(e)}")
+
+    def get_actor_movies_with_details(self, actor_name: str) -> List[Dict]:
+        """Get actor's movies with full details"""
+        try:
+            # Search for the actor
+            search_url = f"{self.base_url}/search/person"
+            params = {"query": actor_name}
+            response = requests.get(search_url, headers=self.headers, params=params)
+            response.raise_for_status()
+            
+            results = response.json().get("results", [])
+            if not results:
+                raise TMDBError(f"No results found for actor: {actor_name}")
+            
+            actor_id = results[0]["id"]
+            
+            # Get actor's movie credits
+            credits_url = f"{self.base_url}/person/{actor_id}/movie_credits"
+            response = requests.get(credits_url, headers=self.headers)
+            response.raise_for_status()
+            
+            movie_credits = response.json().get("cast", [])
+            
+            # Filter and process movies
+            valid_movies = []
+            for credit in movie_credits:
+                if credit.get("order", 999) <= 3:  # Only include movies where actor had a major role
+                    movie_details = self.get_movie_details(credit['id'])
+                    if movie_details and movie_details.get("revenue", 0) > 0:
+                        valid_movies.append(movie_details)
+            
+            # Sort by revenue and get top 5
+            valid_movies.sort(key=lambda x: x["revenue"], reverse=True)
+            return valid_movies[:5]
+            
+        except requests.exceptions.RequestException as e:
+            raise TMDBError(f"Error fetching actor movies: {str(e)}")
+
+    def get_movie_details(self, movie_id: str) -> Dict:
+        """Get full movie details by ID"""
+        try:
+            movie_url = f"{self.base_url}/movie/{movie_id}"
+            response = requests.get(movie_url, headers=self.headers)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            raise TMDBError(f"Error fetching movie details: {str(e)}") 
