@@ -1,4 +1,4 @@
-from flask import Flask, render_template
+from flask import Flask, render_template, jsonify, request
 from movie_data import MovieDataService, TMDBError
 import os
 from dotenv import load_dotenv
@@ -24,6 +24,17 @@ def home():
 @app.route('/new_game')
 def new_game():
     return home()  # For now, just redirect to home with a fresh state
+
+@app.route('/search_movies')
+def search_movies():
+    query = request.args.get('q', '')
+    if not query:
+        return jsonify([])
+    try:
+        movies = movie_service.search_movies(query)
+        return jsonify(movies)
+    except TMDBError as e:
+        return jsonify({"error": str(e)}), 400
 
 if __name__ == '__main__':
     app.run(debug=True) 

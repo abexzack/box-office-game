@@ -89,4 +89,45 @@ class MovieDataService:
 
     def clear_cache(self):
         """Clear the cached results"""
-        self.get_actor_movies.cache_clear() 
+        self.get_actor_movies.cache_clear()
+
+    def search_movies(self, query: str) -> List[dict]:
+        """
+        Search for movies using TMDB API.
+        
+        Args:
+            query (str): Search query string
+            
+        Returns:
+            List[dict]: List of movies with title and year
+        """
+        try:
+            search_url = f"{self.base_url}/search/movie"
+            params = {
+                "query": query,
+                "include_adult": False,
+                "page": 1
+            }
+            
+            response = requests.get(search_url, headers=self.headers, params=params)
+            response.raise_for_status()
+            
+            results = response.json().get("results", [])
+            
+            # Format and limit results
+            movies = []
+            for movie in results[:10]:  # Limit to 10 results
+                if movie.get("release_date"):
+                    year = movie["release_date"][:4]  # Get year from YYYY-MM-DD
+                else:
+                    year = "N/A"
+                    
+                movies.append({
+                    "title": movie["title"],
+                    "year": year
+                })
+                
+            return movies
+            
+        except requests.exceptions.RequestException as e:
+            raise TMDBError(f"Error searching movies: {str(e)}") 
