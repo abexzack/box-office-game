@@ -55,29 +55,158 @@
             color: #666;
             font-size: 0.9em;
         }
+        .game-container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .strikes-container {
+            display: flex;
+            gap: 10px;
+            margin: 10px 0;
+        }
+
+        .strike {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            border: 2px solid #ff4444;
+            transition: background-color 0.3s ease;
+        }
+
+        .strike.active {
+            background-color: #ff4444;
+        }
+
+        .guessed-movies {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .movie-card {
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+            opacity: 0;
+            transform: translateY(20px);
+            animation: fadeIn 0.5s ease forwards;
+        }
+
+        .movie-suggestion {
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+
+        .movie-suggestion:hover {
+            background-color: #f0f0f0;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-content {
+            background-color: white;
+            padding: 20px;
+            border-radius: 5px;
+            text-align: center;
+            max-width: 400px;
+        }
+
+        @keyframes fadeIn {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            display: none;
+        }
+
+        .message.success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+
+        .message.error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
     </style>
 </head>
 <body>
-    <h1>Movie Game</h1>
-    
-    <form action="/new_game" method="get">
-        <button type="submit">Start New Game</button>
-    </form>
+    <div class="game-container">
+        <h1>Movie Game</h1>
+        
+        <button onclick="startNewGame()" type="button">Start New Game</button>
 
-    <div class="actor-name">
-        Current Actor: <span id="actor">{{ actor_name }}</span>
+        <div class="actor-name">
+            Current Actor: <span id="actor">{{ actor_name }}</span>
+        </div>
+
+        <div class="strikes-container">
+            <div class="strike" id="strike-1"></div>
+            <div class="strike" id="strike-2"></div>
+            <div class="strike" id="strike-3"></div>
+        </div>
+
+        <div id="message" class="message"></div>
+
+        <div class="search-container">
+            <div class="dropdown">
+                <input 
+                    type="text" 
+                    id="movieSearch" 
+                    placeholder="Search for a movie..." 
+                    autocomplete="off">
+                <div id="movieDropdown" class="dropdown-content">
+                    <!-- Dynamic content will be inserted here -->
+                </div>
+            </div>
+        </div>
+
+        <div class="guessed-movies" id="guessedMovies">
+            {% for movie in guessed_movies %}
+            <div class="movie-card">
+                <h3>{{ movie.title }}</h3>
+                <p>{{ movie.release_date[:4] }}</p>
+            </div>
+            {% endfor %}
+        </div>
     </div>
 
-    <div class="search-container">
-        <div class="dropdown">
-            <input 
-                type="text" 
-                id="movieSearch" 
-                placeholder="Search for a movie..." 
-                autocomplete="off">
-            <div id="movieDropdown" class="dropdown-content">
-                <!-- Dynamic content will be inserted here -->
-            </div>
+    <!-- Win Modal -->
+    <div id="winModal" class="modal">
+        <div class="modal-content">
+            <h2>Congratulations!</h2>
+            <p>You've found all the movies!</p>
+            <button onclick="startNewGame()">Play Again</button>
+        </div>
+    </div>
+
+    <!-- Lose Modal -->
+    <div id="loseModal" class="modal">
+        <div class="modal-content">
+            <h2>Game Over!</h2>
+            <p>You've run out of guesses.</p>
+            <div id="correctMovies"></div>
+            <button onclick="startNewGame()">Try Again</button>
         </div>
     </div>
 
@@ -85,11 +214,125 @@
         let searchTimeout = null;
         const movieSearch = document.getElementById("movieSearch");
         const movieDropdown = document.getElementById("movieDropdown");
+        const messageDiv = document.getElementById("message");
+        
+        // Initialize game state
+        let gameState = {
+            strikes: {{ strikes }},
+            gameOver: {{ 'true' if game_over else 'false' }},
+            guessedMovies: new Set()
+        };
+
+        // Update strikes display on load
+        updateStrikes(gameState.strikes);
+
+        function showMessage(text, type) {
+            messageDiv.textContent = text;
+            messageDiv.className = `message ${type}`;
+            messageDiv.style.display = 'block';
+            setTimeout(() => {
+                messageDiv.style.display = 'none';
+            }, 3000);
+        }
+
+        function updateStrikes(count) {
+            for (let i = 1; i <= 3; i++) {
+                const strike = document.getElementById(`strike-${i}`);
+                if (i <= count) {
+                    strike.classList.add('active');
+                } else {
+                    strike.classList.remove('active');
+                }
+            }
+        }
+
+        async function submitGuess(movieId, movieTitle) {
+            if (gameState.gameOver) {
+                showMessage('Game is already over!', 'error');
+                return;
+            }
+
+            if (gameState.guessedMovies.has(movieId)) {
+                showMessage('You already guessed this movie!', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch('/submit_guess', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ movie_id: movieId })
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    handleGuessResponse(data);
+                } else {
+                    showMessage(data.error, 'error');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showMessage('Error submitting guess', 'error');
+            }
+
+            movieSearch.value = '';
+            movieDropdown.style.display = 'none';
+        }
+
+        function handleGuessResponse(data) {
+            updateStrikes(data.strikes);
+            showMessage(data.message, data.correct ? 'success' : 'error');
+
+            if (data.correct) {
+                addGuessedMovie(data.guessed_movies[data.guessed_movies.length - 1]);
+            }
+
+            if (data.game_over) {
+                gameState.gameOver = true;
+                if (data.correct) {
+                    document.getElementById('winModal').style.display = 'flex';
+                } else {
+                    const correctMoviesDiv = document.getElementById('correctMovies');
+                    correctMoviesDiv.innerHTML = '<h3>Correct Movies Were:</h3>' +
+                        data.correct_movies.map(movie => `<p>${movie.title} (${movie.release_date.slice(0,4)})</p>`).join('');
+                    document.getElementById('loseModal').style.display = 'flex';
+                }
+            }
+        }
+
+        function addGuessedMovie(movie) {
+            const movieCard = document.createElement('div');
+            movieCard.className = 'movie-card';
+            movieCard.innerHTML = `
+                <h3>${movie.title}</h3>
+                <p>${movie.release_date.slice(0,4)}</p>
+            `;
+            document.getElementById('guessedMovies').appendChild(movieCard);
+            gameState.guessedMovies.add(movie.id);
+        }
+
+        async function startNewGame() {
+            try {
+                const response = await fetch('/start_game');
+                const data = await response.json();
+                
+                if (response.ok) {
+                    location.reload();  // Refresh the page for new game
+                } else {
+                    showMessage(data.error, 'error');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showMessage('Error starting new game', 'error');
+            }
+        }
 
         movieSearch.addEventListener('input', function(e) {
             const query = e.target.value.trim();
             
-            // Clear previous timeout
             if (searchTimeout) {
                 clearTimeout(searchTimeout);
             }
@@ -99,7 +342,6 @@
                 return;
             }
             
-            // Set new timeout for debouncing
             searchTimeout = setTimeout(() => {
                 fetchMovieSuggestions(query);
             }, 250);
@@ -137,8 +379,7 @@
                 `;
                 
                 div.addEventListener('click', () => {
-                    movieSearch.value = movie.title;
-                    movieDropdown.style.display = "none";
+                    submitGuess(movie.id, movie.title);
                 });
                 
                 movieDropdown.appendChild(div);
@@ -153,6 +394,11 @@
                 movieDropdown.style.display = "none";
             }
         });
+
+        // Initialize strikes if game is in progress
+        if (gameState.strikes > 0) {
+            updateStrikes(gameState.strikes);
+        }
     </script>
 </body>
 </html> 
