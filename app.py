@@ -18,20 +18,7 @@ except ValueError as e:
 
 @app.route('/')
 def home():
-    # try:
-        # Get real movie suggestions for Tom Hanks
     movies = movie_service.get_actor_movies("Tom Hanks")
-    # except TMDBError:
-        # Fallback to mock data if API fails
-        # movies = [
-        #     "Forrest Gump",
-        #     "Cast Away",
-        #     "Saving Private Ryan",
-        #     "The Da Vinci Code",
-        #     "Big"
-        # ]
-    
-    print(movies)
     return render_template('home.html', actor_name="Tom Hanks", movies=movies)
 
 @app.route('/new_game')
