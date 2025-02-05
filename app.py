@@ -1,61 +1,61 @@
 from flask import Flask, render_template, jsonify, request, session
 from movie_data import MovieDataService, TMDBError
+from db_service import DatabaseService
 import os
 from dotenv import load_dotenv
-from typing import Tuple, List, Dict
 import random
+import logging
 
-# Load environment variables from .env file
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Load environment variables
 load_dotenv()
 
 app = Flask(__name__)
-app.secret_key = os.getenv('FLASK_SECRET_KEY', 'dev-key-change-this')  # Add to .env
+app.secret_key = os.getenv('FLASK_SECRET_KEY', 'dev-key-change-this')
 
-# List of actors to randomly select from
-ACTOR_POOL = [
-    "Tom Hanks", "Morgan Freeman", "Leonardo DiCaprio", "Meryl Streep",
-    "Brad Pitt", "Julia Roberts", "Denzel Washington", "Sandra Bullock"
-]
-
-try:
-    movie_service = MovieDataService()
-except ValueError as e:
-    print(f"Error initializing MovieDataService: {e}")
-    print("Please ensure TMDB_TOKEN is set in your .env file")
-    exit(1)
-
-def init_game_state(actor_name: str) -> Tuple[List[Dict], List[str]]:
-    """Initialize game state with actor's movies and their details"""
-    movies = movie_service.get_actor_movies_with_details(actor_name)
-    movie_ids = [str(movie['id']) for movie in movies]
-    return movies, movie_ids
+# Initialize services
+movie_service = MovieDataService()
+db_service = DatabaseService()
 
 @app.route('/start_game')
 def start_game():
     """Initialize a new game with a random actor"""
     try:
-        # Select random actor
-        actor_name = random.choice(ACTOR_POOL)
+        # Get random actor from database
+        actor = db_service.get_random_actor()
+        if not actor:
+            logger.error("No actors found in database")
+            return jsonify({'error': 'No actors found in database. Please ensure database is populated.'}), 500
         
-        # Get actor's movies and initialize game state
-        correct_movies, movie_ids = init_game_state(actor_name)
+        # Get actor's movies from database
+        movies = db_service.get_actor_movies(actor.name)
+        if not movies:
+            logger.error(f"No movies found for actor: {actor.name}")
+            return jsonify({'error': f'No movies found for actor: {actor.name}'}), 500
+        
+        movie_ids = [str(movie['id']) for movie in movies]
         
         # Set up session state
-        session['actor_name'] = actor_name
+        session['actor_name'] = actor.name
         session['correct_movie_ids'] = movie_ids
-        session['correct_movies'] = correct_movies
+        session['correct_movies'] = movies
         session['guessed_movies'] = []
         session['strikes'] = 0
         session['game_over'] = False
         
+        logger.info(f"Started new game with actor: {actor.name}")
         return jsonify({
-            'actor_name': actor_name,
+            'actor_name': actor.name,
             'message': 'New game started!',
             'strikes': 0,
             'game_over': False
         })
     
-    except TMDBError as e:
+    except Exception as e:
+        logger.error(f"Error starting game: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/submit_guess', methods=['POST'])
@@ -77,14 +77,24 @@ def submit_guess():
     guessed_movies = session['guessed_movies']
     
     # Check if movie already guessed
-    if movie_id in [m['id'] for m in guessed_movies]:
+    if movie_id in [str(m['id']) for m in guessed_movies]:
         return jsonify({'error': 'Movie already guessed'}), 400
     
-    # Get movie details
-    try:
-        movie_details = movie_service.get_movie_details(movie_id)
-    except TMDBError as e:
-        return jsonify({'error': str(e)}), 500
+    # Try to get movie from database first
+    movie = db_service.get_movie_by_id(int(movie_id))
+    if not movie:
+        try:
+            # Fall back to API if not in database
+            movie_details = movie_service.get_movie_details(movie_id)
+        except TMDBError as e:
+            return jsonify({'error': str(e)}), 500
+    else:
+        movie_details = {
+            'id': movie.tmdb_id,
+            'title': movie.title,
+            'release_date': f"{movie.release_year}-01-01",
+            'revenue': movie.revenue
+        }
     
     # Check if guess is correct
     is_correct = movie_id in session['correct_movie_ids']
@@ -123,6 +133,24 @@ def submit_guess():
         'game_over': session['game_over']
     })
 
+@app.route('/search_movies')
+def search_movies():
+    query = request.args.get('q', '')
+    if not query:
+        return jsonify([])
+    
+    try:
+        # Try database search first
+        movies = db_service.search_movies(query)
+        
+        # If no results, fallback to API
+        if not movies:
+            movies = movie_service.search_movies(query)
+        
+        return jsonify(movies)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
 @app.route('/')
 def home():
     # Start new game if none active
@@ -137,18 +165,10 @@ def home():
 
 @app.route('/new_game')
 def new_game():
-    return home()  # For now, just redirect to home with a fresh state
+    """Start a new game by clearing session and redirecting to home"""
+    session.clear()  # Clear the current session
+    return start_game()
 
-@app.route('/search_movies')
-def search_movies():
-    query = request.args.get('q', '')
-    if not query:
-        return jsonify([])
-    try:
-        movies = movie_service.search_movies(query)
-        return jsonify(movies)
-    except TMDBError as e:
-        return jsonify({"error": str(e)}), 400
 
 if __name__ == '__main__':
     app.run(debug=True) 

@@ -158,13 +158,23 @@ class MovieDataService:
             # Filter and process movies
             valid_movies = []
             for credit in movie_credits:
-                if credit.get("order", 999) <= 3:  # Only include movies where actor had a major role
-                    movie_details = self.get_movie_details(credit['id'])
-                    if movie_details and movie_details.get("revenue", 0) > 0:
-                        valid_movies.append(movie_details)
+                # Relaxed criteria: include movies where actor is in top 10 billing
+                if credit.get("order", 999) <= 10:  
+                    try:
+                        movie_details = self.get_movie_details(credit['id'])
+                        # Include movies with any revenue data and released in theaters
+                        if (movie_details and 
+                            movie_details.get("release_date") and  # Has release date
+                            movie_details.get("revenue", 0) >= 0 and  # Has any revenue (including 0)
+                            movie_details.get("release_type", "") != "TV"  # Not a TV movie
+                        ):
+                            valid_movies.append(movie_details)
+                    except Exception as e:
+                        print(f"Error fetching details for movie {credit['id']}: {e}")
+                        continue
             
             # Sort by revenue and get top 5
-            valid_movies.sort(key=lambda x: x["revenue"], reverse=True)
+            valid_movies.sort(key=lambda x: x.get("revenue", 0), reverse=True)
             return valid_movies[:5]
             
         except requests.exceptions.RequestException as e:
@@ -178,4 +188,31 @@ class MovieDataService:
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:
-            raise TMDBError(f"Error fetching movie details: {str(e)}") 
+            raise TMDBError(f"Error fetching movie details: {str(e)}")
+
+    def make_request(self, method: str, url: str, params: dict = None) -> dict:
+        """
+        Make a request to TMDB API
+        
+        Args:
+            method (str): HTTP method (GET, POST, etc.)
+            url (str): API endpoint URL
+            params (dict, optional): Query parameters
+            
+        Returns:
+            dict: JSON response from API
+            
+        Raises:
+            TMDBError: If request fails
+        """
+        try:
+            response = requests.request(
+                method=method,
+                url=url,
+                headers=self.headers,
+                params=params
+            )
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            raise TMDBError(f"API request failed: {str(e)}") 
