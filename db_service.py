@@ -34,15 +34,20 @@ class DatabaseService:
         """Get a random actor from the database"""
         with self.get_db() as db:
             try:
-                # Get random actor with at least one movie
+                # First check if we have any actors at all
+                total_actors = db.query(Actor).count()
+                logger.info(f"Total actors in database: {total_actors}")
+
+                # Simple query to get a random actor with movies
                 actor = db.query(Actor)\
                          .filter(Actor.movies.any())\
                          .order_by(func.random())\
                          .first()
+                
                 if actor:
-                    logger.info(f"Found random actor: {actor.name}")
+                    logger.info(f"Found random actor: {actor.name} with {len(actor.movies)} movies")
                 else:
-                    logger.warning("No actors found in database")
+                    logger.warning("No actors found with movies in database")
                 return actor
             except Exception as e:
                 logger.error(f"Error getting random actor: {e}")
