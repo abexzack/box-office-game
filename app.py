@@ -37,7 +37,6 @@ def start_game():
             return jsonify({'error': f'No movies found for actor: {actor.name}'}), 500
         
         movie_ids = [str(movie['id']) for movie in movies]
-        
         # Set up session state
         session['actor_name'] = actor.name
         session['correct_movie_ids'] = movie_ids
@@ -45,13 +44,16 @@ def start_game():
         session['guessed_movies'] = []
         session['strikes'] = 0
         session['game_over'] = False
+        actor.image_url = movie_service.get_actor_image_url(actor.name)
+        session['actor_image_url'] =actor.image_url
         
         logger.info(f"Started new game with actor: {actor.name}")
         return jsonify({
             'actor_name': actor.name,
             'message': 'New game started!',
             'strikes': 0,
-            'game_over': False
+            'game_over': False,
+            'actor_image_url': actor.image_url
         })
     
     except Exception as e:
@@ -153,15 +155,18 @@ def search_movies():
 
 @app.route('/')
 def home():
+    # session['actor_image_url'] = None
     # Start new game if none active
     if 'actor_name' not in session:
         start_game()
-    
+    print(session)
     return render_template('home.html', 
                          actor_name=session['actor_name'],
                          strikes=session['strikes'],
                          guessed_movies=session['guessed_movies'],
-                         game_over=session['game_over'])
+                         game_over=session['game_over'],
+                         actor_image_url=session['actor_image_url']
+                         )
 
 @app.route('/new_game')
 def new_game():
