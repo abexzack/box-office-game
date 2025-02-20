@@ -1,4 +1,5 @@
 from tmdbv3api import TMDb, Person, Movie
+from bs4 import BeautifulSoup
 from typing import List, Optional, Dict
 import time
 from functools import lru_cache
@@ -16,19 +17,49 @@ class TMDBError(Exception):
 class MovieDataService:
     def __init__(self, access_token: Optional[str] = None):
         self.tmdb = TMDb()
-        self.access_token = access_token or os.getenv('TMDB_TOKEN')
-        if not self.access_token:
+        self.tmdb.access_token = access_token or os.getenv('TMDB_TOKEN')
+        self.person = Person()
+
+        if not self.tmdb.access_token:
             raise ValueError("TMDB access token is required. Set TMDB_TOKEN in .env file or pass to constructor.")
         
         # Set up headers for API requests
         self.headers = {
-            "Authorization": f"Bearer {self.access_token}",
+            "Authorization": f"Bearer {self.tmdb.access_token}",
             "Content-Type": "application/json;charset=utf-8"
         }
         
         self.base_url = "https://api.themoviedb.org/3"
         self.cache_timeout = 3600  # 1 hour
 
+    def get_actor_image_url(self, actor_name):
+        """
+        Retrieves the profile image URL for an actor using TMDb API.
+        
+        Args:
+            actor_name (str): The name of the actor to search for
+            
+        Returns:
+            str: The complete URL of the actor's profile image, or None if not found
+        """
+        def search_image_urls(query, num_images=5):
+            search_url = f"https://www.google.com/search?q={query}&tbm=isch"
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"}
+            
+            response = requests.get(search_url, headers=headers)
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            image_urls = []
+            for img_tag in soup.find_all("img", limit=num_images):
+                img_url = img_tag.get("src")
+                if img_url and img_url.startswith("http"):
+                    image_urls.append(img_url)
+
+            return image_urls[0]
+        
+        return search_image_urls(actor_name)
+   
     @lru_cache(maxsize=100)
     def get_actor_movies(self, actor_name: str) -> List[str]:
         """
