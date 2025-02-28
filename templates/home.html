@@ -128,6 +128,7 @@
             overflow: hidden;
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
             transition: transform 0.3s ease;
+            position: relative;
         }
 
         .movie-card:hover {
@@ -215,7 +216,7 @@
             background-color: white;
             padding: 30px;
             border-radius: 10px;
-            max-width: 500px;
+            max-width: 800px;
             width: 90%;
             text-align: center;
         }
@@ -249,6 +250,48 @@
                 height: 300px;
             }
         }
+
+        .movie-rank {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 2;
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 50%;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        
+        .medal {
+            font-size: 24px;
+        }
+        
+        .rank-number {
+            font-weight: bold;
+            color: #2c3e50;
+        }
+
+        #correctMovies .movie-card {
+            max-width: 200px;
+            margin: 10px auto;
+        }
+
+        #correctMovies .movie-poster {
+            height: 250px;
+        }
+
+        #correctMovies {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 15px;
+            padding: 15px;
+            max-height: 70vh;
+            overflow-y: auto;
+        }
     </style>
 </head>
 <body>
@@ -279,15 +322,30 @@
             </div>
         </div>
 
-        <div class="guessed-movies" id="guessedMovies">
+        <div class="guessed-movies">
             {% for movie in guessed_movies %}
             <div class="movie-card">
-                <img class="movie-poster" src="{{ movie.poster_path if movie.poster_path else '/static/placeholder.png' }}" alt="{{ movie.title }}">
+                <div class="movie-rank">
+                    {% if loop.index == 1 %}
+                        <span class="medal gold">🥇</span>
+                    {% elif loop.index == 2 %}
+                        <span class="medal silver">🥈</span>
+                    {% elif loop.index == 3 %}
+                        <span class="medal bronze">🥉</span>
+                    {% else %}
+                        <span class="rank-number">#{{ loop.index }}</span>
+                    {% endif %}
+                </div>
+                {% if movie.poster_path %}
+                    <img class="movie-poster" src="https://image.tmdb.org/t/p/w200{{ movie.poster_path }}" alt="{{ movie.title }}">
+                {% else %}
+                    <img class="movie-poster" src="{{ url_for('static', filename='placeholder.png') }}" alt="No poster available">
+                {% endif %}
                 <div class="movie-info">
                     <div class="movie-title">{{ movie.title }}</div>
                     <div class="movie-year">{{ movie.release_date[:4] }}</div>
                     <div class="revenue-bar-container">
-                        <div class="revenue-bar" style="width: {{ (movie.revenue / max_revenue * 100) if max_revenue else 0 }}%"></div>
+                        <div class="revenue-bar" style="width: {{ (movie.revenue / highest_revenue * 100) if highest_revenue else 0 }}%"></div>
                     </div>
                     <div class="revenue-text">${{ '{:,.0f}'.format(movie.revenue / 1000000) }}M</div>
                 </div>
@@ -346,23 +404,42 @@
         }
 
         function addGuessedMovie(movie) {
+            const guessedMoviesContainer = document.querySelector('.guessed-movies');
+            const currentRank = guessedMoviesContainer.children.length + 1;
             const movieCard = document.createElement('div');
             movieCard.className = 'movie-card';
-            const revenuePercentage = (movie.revenue / gameState.maxRevenue * 100) || 0;
+            
+            let rankHtml = '';
+            if (currentRank === 1) {
+                rankHtml = '<span class="medal gold">🥇</span>';
+            } else if (currentRank === 2) {
+                rankHtml = '<span class="medal silver">🥈</span>';
+            } else if (currentRank === 3) {
+                rankHtml = '<span class="medal bronze">🥉</span>';
+            } else {
+                rankHtml = `<span class="rank-number">#${currentRank}</span>`;
+            }
             
             movieCard.innerHTML = `
-                <img class="movie-poster" src="${movie.poster_path || '/static/placeholder.png'}" alt="${movie.title}">
+                <div class="movie-rank">
+                    ${rankHtml}
+                </div>
+                <img class="movie-poster" 
+                     src="${movie.poster_path ? 
+                          'https://image.tmdb.org/t/p/w200' + movie.poster_path : 
+                          '/static/placeholder.png'}" 
+                     alt="${movie.title}">
                 <div class="movie-info">
                     <div class="movie-title">${movie.title}</div>
                     <div class="movie-year">${movie.release_date.slice(0,4)}</div>
                     <div class="revenue-bar-container">
-                        <div class="revenue-bar" style="width: ${revenuePercentage}%"></div>
+                        <div class="revenue-bar" style="width: ${(movie.revenue / gameState.maxRevenue * 100)}%"></div>
                     </div>
                     <div class="revenue-text">$${(movie.revenue / 1000000).toFixed(0)}M</div>
                 </div>
             `;
             
-            document.getElementById('guessedMovies').appendChild(movieCard);
+            guessedMoviesContainer.appendChild(movieCard);
             gameState.guessedMovies.add(movie.id);
         }
 
@@ -426,141 +503,127 @@
                 } else {
                     const correctMoviesDiv = document.getElementById('correctMovies');
                     correctMoviesDiv.innerHTML = '<h3>Correct Movies Were:</h3>' +
-                        data.correct_movies.map(movie => 
-                            `<div class="movie-card">
-                                <img class="movie-poster" src="${movie.poster_path || '/static/placeholder.png'}" alt="${movie.title}">
-                                <div class="movie-info">
-                                    <div class="movie-title">${movie.title}</div>
-                                    <div class="movie-year">${movie.release_date.slice(0,4)}</div>
-                                </div>
-                            </div>`
-                        ).join('');
+                        data.correct_movies.map((movie, index) => {
+                            let rankHtml = '';
+                            if (index === 0) {
+                                rankHtml = '<span class="medal gold">🥇</span>';
+                            } else if (index === 1) {
+                                rankHtml = '<span class="medal silver">🥈</span>';
+                            } else if (index === 2) {
+                                rankHtml = '<span class="medal bronze">🥉</span>';
+                            } else {
+                                rankHtml = `<span class="rank-number">#${index + 1}</span>`;
+                            }
+                            
+                            return `
+                                <div class="movie-card">
+                                    <div class="movie-rank">${rankHtml}</div>
+                                    <img class="movie-poster" 
+                                         src="${movie.poster_path ? 
+                                              'https://image.tmdb.org/t/p/w200' + movie.poster_path : 
+                                              '/static/placeholder.png'}" 
+                                         alt="${movie.title}">
+                                    <div class="movie-info">
+                                        <div class="movie-title">${movie.title}</div>
+                                        <div class="movie-year">${movie.release_date.slice(0,4)}</div>
+                                        <div class="revenue-bar-container">
+                                            <div class="revenue-bar" style="width: ${(movie.revenue / data.highest_revenue * 100)}%"></div>
+                                        </div>
+                                        <div class="revenue-text">$${(movie.revenue / 1000000).toFixed(0)}M</div>
+                                    </div>
+                                </div>`;
+                        }).join('');
                     document.getElementById('loseModal').style.display = 'flex';
                 }
             }
         }
 
-        // Rest of the JavaScript remains the same...
-
-
-    function handleGuessResponse(data) {
-        updateStrikes(data.strikes);
-        showMessage(data.message, data.correct ? 'success' : 'error');
-
-        if (data.correct) {
-            addGuessedMovie(data.guessed_movies[data.guessed_movies.length - 1]);
-        }
-
-        if (data.game_over) {
-            gameState.gameOver = true;
-            if (data.correct) {
-                document.getElementById('winModal').style.display = 'flex';
-            } else {
-                const correctMoviesDiv = document.getElementById('correctMovies');
-                correctMoviesDiv.innerHTML = '<h3>Correct Movies Were:</h3>' +
-                    data.correct_movies.map(movie => `<p>${movie.title} (${movie.release_date.slice(0,4)})</p>`).join('');
-                document.getElementById('loseModal').style.display = 'flex';
+        async function startNewGame() {
+            try {
+                const response = await fetch('/start_game');
+                const data = await response.json();
+                
+                if (response.ok) {
+                    location.reload();  // Refresh the page for new game
+                } else {
+                    showMessage(data.error, 'error');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showMessage('Error starting new game', 'error');
             }
         }
-    }
 
-    function addGuessedMovie(movie) {
-        const movieCard = document.createElement('div');
-        movieCard.className = 'movie-card';
-        movieCard.innerHTML = `
-            <h3>${movie.title}</h3>
-            <p>${movie.release_date.slice(0,4)}</p>
-        `;
-        document.getElementById('guessedMovies').appendChild(movieCard);
-        gameState.guessedMovies.add(movie.id);
-    }
-
-    async function startNewGame() {
-        try {
-            const response = await fetch('/start_game');
-            const data = await response.json();
+        movieSearch.addEventListener('input', function(e) {
+            const query = e.target.value.trim();
             
-            if (response.ok) {
-                location.reload();  // Refresh the page for new game
-            } else {
-                showMessage(data.error, 'error');
+            if (searchTimeout) {
+                clearTimeout(searchTimeout);
             }
-        } catch (error) {
-            console.error('Error:', error);
-            showMessage('Error starting new game', 'error');
-        }
-    }
-
-    movieSearch.addEventListener('input', function(e) {
-        const query = e.target.value.trim();
-        
-        if (searchTimeout) {
-            clearTimeout(searchTimeout);
-        }
-        
-        if (!query) {
-            movieDropdown.style.display = "none";
-            return;
-        }
-        
-        searchTimeout = setTimeout(() => {
-            fetchMovieSuggestions(query);
-        }, 250);
-    });
-
-    async function fetchMovieSuggestions(query) {
-        try {
-            const response = await fetch(`/search_movies?q=${encodeURIComponent(query)}`);
-            const movies = await response.json();
             
-            if (response.ok) {
-                displayMovieSuggestions(movies);
-            } else {
-                console.error('Error:', movies.error);
+            if (!query) {
+                movieDropdown.style.display = "none";
+                return;
             }
-        } catch (error) {
-            console.error('Error fetching suggestions:', error);
-        }
-    }
-
-    function displayMovieSuggestions(movies) {
-        movieDropdown.innerHTML = '';
-        
-        if (movies.length === 0) {
-            movieDropdown.style.display = "none";
-            return;
-        }
-        
-        movies.forEach(movie => {
-            const div = document.createElement('div');
-            div.className = 'movie-suggestion';
-            div.innerHTML = `
-                <span class="movie-title">${movie.title}</span>
-                <span class="movie-year">${movie.year}</span>
-            `;
             
-            div.addEventListener('click', () => {
-                submitGuess(movie.id, movie.title);
+            searchTimeout = setTimeout(() => {
+                fetchMovieSuggestions(query);
+            }, 250);
+        });
+
+        async function fetchMovieSuggestions(query) {
+            try {
+                const response = await fetch(`/search_movies?q=${encodeURIComponent(query)}`);
+                const movies = await response.json();
+                
+                if (response.ok) {
+                    displayMovieSuggestions(movies);
+                } else {
+                    console.error('Error:', movies.error);
+                }
+            } catch (error) {
+                console.error('Error fetching suggestions:', error);
+            }
+        }
+
+        function displayMovieSuggestions(movies) {
+            movieDropdown.innerHTML = '';
+            
+            if (movies.length === 0) {
+                movieDropdown.style.display = "none";
+                return;
+            }
+            
+            movies.forEach(movie => {
+                const div = document.createElement('div');
+                div.className = 'movie-suggestion';
+                div.innerHTML = `
+                    <span class="movie-title">${movie.title}</span>
+                    <span class="movie-year">${movie.year}</span>
+                `;
+                
+                div.addEventListener('click', () => {
+                    submitGuess(movie.id, movie.title);
+                });
+                
+                movieDropdown.appendChild(div);
             });
             
-            movieDropdown.appendChild(div);
-        });
-        
-        movieDropdown.style.display = "block";
-    }
-
-    // Close dropdown when clicking outside
-    document.addEventListener('click', function(e) {
-        if (!movieSearch.contains(e.target)) {
-            movieDropdown.style.display = "none";
+            movieDropdown.style.display = "block";
         }
-    });
 
-    // Initialize strikes if game is in progress
-    if (gameState.strikes > 0) {
-        updateStrikes(gameState.strikes);
-    }
-</script>
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function(e) {
+            if (!movieSearch.contains(e.target)) {
+                movieDropdown.style.display = "none";
+            }
+        });
+
+        // Initialize strikes if game is in progress
+        if (gameState.strikes > 0) {
+            updateStrikes(gameState.strikes);
+        }
+    </script>
 </body>
 </html> 
 

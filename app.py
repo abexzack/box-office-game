@@ -63,77 +63,97 @@ def start_game():
 @app.route('/submit_guess', methods=['POST'])
 def submit_guess():
     """Handle movie guess submission"""
-    if 'actor_name' not in session:
-        return jsonify({'error': 'No active game'}), 400
-    
-    if session.get('game_over'):
-        return jsonify({'error': 'Game is over'}), 400
-    
-    movie_id = request.json.get('movie_id')
-    if not movie_id:
-        return jsonify({'error': 'No movie_id provided'}), 400
-    
-    # Convert to string for comparison
-    movie_id = str(movie_id)
-    correct_movies = session['correct_movies']
-    guessed_movies = session['guessed_movies']
-    
-    # Check if movie already guessed
-    if movie_id in [str(m['id']) for m in guessed_movies]:
-        return jsonify({'error': 'Movie already guessed'}), 400
-    
-    # Try to get movie from database first
-    movie = db_service.get_movie_by_id(int(movie_id))
-    if not movie:
-        try:
-            # Fall back to API if not in database
-            movie_details = movie_service.get_movie_details(movie_id)
-        except TMDBError as e:
-            return jsonify({'error': str(e)}), 500
-    else:
-        movie_details = {
-            'id': movie.tmdb_id,
-            'title': movie.title,
-            'release_date': f"{movie.release_year}-01-01",
-            'revenue': movie.revenue
-        }
-    
-    # Check if guess is correct
-    is_correct = movie_id in session['correct_movie_ids']
-    
-    if is_correct:
-        guessed_movies.append(movie_details)
-        session['guessed_movies'] = guessed_movies
+    try:
+        if 'actor_name' not in session:
+            return jsonify({'error': 'No active game'}), 400
         
-        # Check if all movies found
-        if len(guessed_movies) == len(correct_movies):
-            session['game_over'] = True
+        if session.get('game_over'):
+            return jsonify({'error': 'Game is over'}), 400
+        
+        movie_id = request.json.get('movie_id')
+        if not movie_id:
+            return jsonify({'error': 'No movie_id provided'}), 400
+        
+        # Convert to string for comparison
+        movie_id = str(movie_id)
+        correct_movies = session['correct_movies']
+        guessed_movies = session['guessed_movies']
+        
+        # Check if movie already guessed
+        if movie_id in [str(m['id']) for m in guessed_movies]:
+            return jsonify({'error': 'Movie already guessed'}), 400
+        
+        # Try to get movie from database first
+        movie = db_service.get_movie_by_id(int(movie_id))
+        if not movie:
+            try:
+                # Fall back to API if not in database
+                movie_details = movie_service.get_movie_details(movie_id)
+            except TMDBError as e:
+                return jsonify({'error': str(e)}), 500
+        else:
+            movie_details = {
+                'id': movie.tmdb_id,
+                'title': movie.title,
+                'release_date': f"{movie.release_year}-01-01",
+                'revenue': movie.revenue,
+                'poster_path': movie.poster_path
+            }
+        
+        # Check if guess is correct
+        is_correct = movie_id in session['correct_movie_ids']
+        
+        if is_correct:
+            guessed_movies.append(movie_details)
+            session['guessed_movies'] = guessed_movies
+            
+            # Calculate highest revenue
+            highest_revenue = max([m['revenue'] for m in guessed_movies])
+            
+            # Check if all movies found
+            if len(guessed_movies) == len(correct_movies):
+                session['game_over'] = True
+                return jsonify({
+                    'correct': True,
+                    'message': 'Congratulations! You found all movies!',
+                    'game_over': True,
+                    'guessed_movies': guessed_movies,
+                    'strikes': session['strikes'],
+                    'highest_revenue': highest_revenue
+                })
+            
             return jsonify({
                 'correct': True,
-                'message': 'Congratulations! You found all movies!',
-                'game_over': True,
+                'message': 'Correct guess!',
                 'guessed_movies': guessed_movies,
-                'strikes': session['strikes']
+                'strikes': session['strikes'],
+                'game_over': False,
+                'highest_revenue': highest_revenue
             })
-    else:
-        session['strikes'] = session['strikes'] + 1
-        if session['strikes'] >= 3:
-            session['game_over'] = True
+        else:
+            session['strikes'] = session['strikes'] + 1
+            if session['strikes'] >= 3:
+                session['game_over'] = True
+                return jsonify({
+                    'correct': False,
+                    'message': 'Game Over! Too many incorrect guesses.',
+                    'game_over': True,
+                    'correct_movies': correct_movies,
+                    'strikes': session['strikes'],
+                    'highest_revenue': max([m['revenue'] for m in correct_movies])
+                })
+            
             return jsonify({
                 'correct': False,
-                'message': 'Game Over! Too many incorrect guesses.',
-                'game_over': True,
-                'correct_movies': correct_movies,
-                'strikes': session['strikes']
+                'message': 'Incorrect guess!',
+                'guessed_movies': guessed_movies,
+                'strikes': session['strikes'],
+                'game_over': False
             })
-    
-    return jsonify({
-        'correct': is_correct,
-        'message': 'Correct guess!' if is_correct else 'Incorrect guess!',
-        'guessed_movies': guessed_movies,
-        'strikes': session['strikes'],
-        'game_over': session['game_over']
-    })
+            
+    except Exception as e:
+        logger.error(f"Error in submit_guess: {str(e)}")
+        return jsonify({'error': 'Server error processing guess'}), 500
 
 @app.route('/search_movies')
 def search_movies():
@@ -155,17 +175,19 @@ def search_movies():
 
 @app.route('/')
 def home():
-    # session['actor_image_url'] = None
-    # Start new game if none active
     if 'actor_name' not in session:
         start_game()
-    print(session)
+    
+    # Calculate highest revenue from correct movies
+    highest_revenue = max([m['revenue'] for m in session['correct_movies']] if session.get('correct_movies') else [0])
+    
     return render_template('home.html', 
                          actor_name=session['actor_name'],
                          strikes=session['strikes'],
                          guessed_movies=session['guessed_movies'],
                          game_over=session['game_over'],
-                         actor_image_url=session['actor_image_url']
+                         actor_image_url=session['actor_image_url'],
+                         highest_revenue=highest_revenue
                          )
 
 @app.route('/new_game')
