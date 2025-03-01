@@ -69,7 +69,8 @@ class DatabaseService:
                         'id': movie.tmdb_id,
                         'title': movie.title,
                         'release_date': f"{movie.release_year}-01-01" if movie.release_year else None,
-                        'revenue': movie.revenue or 0
+                        'revenue': movie.revenue or 0,
+                        'poster_path': movie.poster_path
                     })
                 
                 logger.info(f"Found {len(movies)} movies for {actor_name}")

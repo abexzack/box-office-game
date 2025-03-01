@@ -41,26 +41,39 @@ function submitGuess(movieId) {
         },
         body: JSON.stringify({ movie_id: movieId })
     })
-    .then(response => response.json())
-    .then(data => {
-        if (data.error) {
-            alert(data.error);
-            return;
+    .then(response => {
+        if (!response.ok) {
+            return response.json().then(err => Promise.reject(err));
         }
-
+        return response.json();
+    })
+    .then(data => {
         // Clear search
         document.getElementById('movie-search').value = '';
         document.getElementById('search-results').innerHTML = '';
 
-        // Refresh page if game is over
-        if (data.game_over) {
-            location.reload();
+        if (data.error) {
+            showMessage(data.error, 'error');
             return;
         }
 
         // Update UI
         updateGameState(data);
+        showMessage(data.message, data.correct ? 'success' : 'error');
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showMessage(error.error || 'Error submitting guess', 'error');
     });
+}
+
+function showMessage(text, type) {
+    const messageDiv = document.getElementById('message');
+    messageDiv.textContent = text;
+    messageDiv.className = `message ${type} show`;
+    setTimeout(() => {
+        messageDiv.classList.remove('show');
+    }, 3000);
 }
 
 function updateGameState(data) {
@@ -72,7 +85,34 @@ function updateGameState(data) {
         }
     });
 
-    // Refresh the page to update guessed movies
-    // In a more advanced version, you could update the DOM directly
-    location.reload();
+    if (data.correct) {
+        // Add the new movie to the display without refreshing
+        const guessedMoviesContainer = document.querySelector('.guessed-movies');
+        const movieCard = document.createElement('div');
+        movieCard.className = 'movie-card';
+        
+        const latestMovie = data.guessed_movies[data.guessed_movies.length - 1];
+        movieCard.innerHTML = `
+            <img class="movie-poster" 
+                 src="${latestMovie.poster_path ? 
+                      'https://image.tmdb.org/t/p/w200' + latestMovie.poster_path : 
+                      '/static/placeholder.png'}" 
+                 alt="${latestMovie.title}">
+            <div class="movie-info">
+                <div class="movie-title">${latestMovie.title}</div>
+                <div class="movie-year">${latestMovie.release_date.slice(0,4)}</div>
+                <div class="revenue-bar-container">
+                    <div class="revenue-bar" style="width: ${(latestMovie.revenue / data.highest_revenue * 100)}%"></div>
+                </div>
+                <div class="revenue-text">$${(latestMovie.revenue / 1000000).toFixed(0)}M</div>
+            </div>
+        `;
+        
+        guessedMoviesContainer.appendChild(movieCard);
+    }
+
+    // Only refresh if game is over
+    if (data.game_over) {
+        location.reload();
+    }
 } 
