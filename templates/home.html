@@ -456,9 +456,9 @@
         let gameState = {
             strikes: {{ strikes }},
             gameOver: {{ 'true' if game_over else 'false' }},
-            guessedMovies: new Set()
+            guessedMovies: new Set(),
+            maxRevenue: {{ highest_revenue if highest_revenue else 0 }}
         };
-        
 
         function showMessage(text, type) {
             messageDiv.textContent = text;
@@ -771,3 +771,4 @@
     </script>
 </body>
 </html> 
+
