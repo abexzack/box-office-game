@@ -110,6 +110,14 @@ def submit_guess():
             # Calculate highest revenue
             highest_revenue = max([m['revenue'] for m in guessed_movies])
             
+            # Sort correct movies by revenue to get true rankings
+            sorted_correct_movies = sorted(session['correct_movies'], 
+                                        key=lambda x: x['revenue'], 
+                                        reverse=True)
+            # Get the true rank of the guessed movie
+            true_rank = next(i + 1 for i, m in enumerate(sorted_correct_movies) 
+                           if str(m['id']) == str(movie_id))
+            
             # Check if all movies found
             if len(guessed_movies) == len(correct_movies):
                 session['game_over'] = True
@@ -119,7 +127,8 @@ def submit_guess():
                     'game_over': True,
                     'guessed_movies': guessed_movies,
                     'strikes': session['strikes'],
-                    'highest_revenue': highest_revenue
+                    'highest_revenue': highest_revenue,
+                    'true_rank': true_rank
                 })
             
             return jsonify({
@@ -128,29 +137,34 @@ def submit_guess():
                 'guessed_movies': guessed_movies,
                 'strikes': session['strikes'],
                 'game_over': False,
-                'highest_revenue': highest_revenue
+                'highest_revenue': highest_revenue,
+                'true_rank': true_rank
             })
-        else:
-            session['strikes'] = session['strikes'] + 1
-            if session['strikes'] >= 3:
-                session['game_over'] = True
-                return jsonify({
-                    'correct': False,
-                    'message': 'Game Over! Too many incorrect guesses.',
-                    'game_over': True,
-                    'correct_movies': correct_movies,
-                    'strikes': session['strikes'],
-                    'highest_revenue': max([m['revenue'] for m in correct_movies])
-                })
-            
+        
+        # Handle incorrect guess
+        session['strikes'] = session.get('strikes', 0) + 1
+        
+        # Check if game is over due to strikes
+        if session['strikes'] >= 3:
+            session['game_over'] = True
             return jsonify({
                 'correct': False,
-                'message': 'Incorrect guess!',
-                'guessed_movies': guessed_movies,
+                'message': 'Game Over! Too many incorrect guesses.',
+                'game_over': True,
+                'correct_movies': sorted(correct_movies, key=lambda x: x['revenue'], reverse=True),  # Sort by revenue
                 'strikes': session['strikes'],
-                'game_over': False
+                'highest_revenue': max([m['revenue'] for m in correct_movies])
             })
-            
+        
+        # Return response for incorrect guess
+        return jsonify({
+            'correct': False,
+            'message': 'Incorrect guess!',
+            'guessed_movies': guessed_movies,
+            'strikes': session['strikes'],
+            'game_over': False
+        })
+        
     except Exception as e:
         logger.error(f"Error in submit_guess: {str(e)}")
         return jsonify({'error': 'Server error processing guess'}), 500
